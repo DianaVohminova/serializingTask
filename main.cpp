@@ -196,7 +196,139 @@ FileResult List::serialize(std::ostream& stream, std::string& error_message) {
     return FileResult::Success;
 }
 
-   
+/*---------------------------------------------------------*/
+// Функция десериализации 
+FileResult List::deserialize(std::istream& stream, std::string& error_message) {
+    clear();
+
+    int num_nodes;
+    stream.read(reinterpret_cast<char*>(&num_nodes), sizeof(num_nodes));
+    if (stream.fail()) {
+        error_message = "Failed to read count during deserialization.";
+        return FileResult::FailedToRead;
+    }
+
+    if (num_nodes <= 0) {
+        count = 0;
+        head = nullptr;
+        tail = nullptr;
+        return FileResult::Success; // Считаем пустой список за успех
+    }
+
+    // Проверим лимит по ТЗ (10^6)
+    if (num_nodes > 1000000) {
+        error_message = "Number of nodes exceeds limit (" + std::to_string(num_nodes) + " > 1000000)";
+        return FileResult::InvalidFormat;
+    }
+
+    std::vector<ListNode*> nodes;
+    nodes.reserve(num_nodes);
+
+    for (int i = 0; i < num_nodes; ++i) {
+        int data_len;
+        stream.read(reinterpret_cast<char*>(&data_len), sizeof(data_len));
+        if (stream.fail()) {
+            error_message = "Failed to read string length during deserialization.";
+            return FileResult::FailedToRead;
+        }
+
+        if (data_len < 0 || data_len > 1000) { // Проверим лимит длины строки из ТЗ
+            error_message = "Invalid string length found during deserialization: " + std::to_string(data_len);
+            return FileResult::InvalidFormat;
+        }
+
+        std::string data_str(data_len, '\0');
+        stream.read(&data_str[0], data_len);
+        if (stream.fail()) {
+            error_message = "Failed to read string data during deserialization.";
+            return FileResult::FailedToRead;
+        }
+
+        ListNode* new_node = new ListNode();
+        new_node->data = std::move(data_str);
+        nodes.push_back(new_node);
+    }
+
+    for (int i = 0; i < num_nodes; ++i) {
+        if (i > 0) {
+            nodes[i]->prev = nodes[i - 1];
+        }
+        if (i < num_nodes - 1) {
+            nodes[i]->next = nodes[i + 1];
+        }
+    }
+
+    head = nodes[0];
+    tail = nodes[num_nodes - 1];
+    count = num_nodes;
+
+    for (int i = 0; i < num_nodes; ++i) {
+        int rand_idx;
+        stream.read(reinterpret_cast<char*>(&rand_idx), sizeof(rand_idx));
+        if (stream.fail()) {
+            error_message = "Failed to read rand index during deserialization.";
+            return FileResult::FailedToRead;
+        }
+
+        if (rand_idx >= 0 && rand_idx < num_nodes) {
+            nodes[i]->rand = nodes[rand_idx];
+        } else if (rand_idx != -1) {
+            error_message = "Rand index out of bounds in serialized data for node " + std::to_string(i) + ", index: " + std::to_string(rand_idx);
+            clear();
+            return FileResult::InvalidFormat;
+        } else {
+            nodes[i]->rand = nullptr;
+        }
+    }
+    return FileResult::Success;
+}
+/*-----------------------------------------------------------*/
+// Запись сериализованных данных в файл outlet.out
+FileResult List::serializeToFile(const std::string& filename, std::string& error_message) {
+    std::ofstream file(filename, std::ios::binary);
+    if (!file.is_open()) {
+        error_message = "Cannot create output file: " + filename;
+        return FileResult::CannotCreateOutput;
+    }
+    FileResult res = serialize(file, error_message);
+    file.close();
+    return res; // Возвращаем результат Serialize
+}
+/*-----------------------------------------------------------*/
+// Считывание сериализованных данных из файла outlet.out и десериализация
+FileResult List::deserializeFromFile(const std::string& filename, std::string& error_message) {
+    std::ifstream file(filename, std::ios::binary);
+    if (!file.is_open()) {
+        error_message = "Cannot open binary file: " + filename;
+        return FileResult::CannotOpenInput;
+    }
+    FileResult res = deserialize(file, error_message);
+    file.close();
+    return res; // Возвращаем результат Deserialize
+}
+/*-----------------------------------------------------------*/
+// Вспомогательные функции для отладки
+ListNode* List::GetHead() const {
+    return head;
+}
+
+int List::GetCount() const {
+    return count;
+}
+
+/*-----------------------------------------------------------*/
+// Функция очистки списка
+void List::clear() {
+    ListNode* current = head;
+    while (current != nullptr) {
+        ListNode* next = current->next;
+        delete current;
+        current = next;
+    }
+    head = nullptr;
+    tail = nullptr;
+    count = 0;
+}
 
 
 int main() {
@@ -217,6 +349,34 @@ int main() {
         std::cerr << "Error serializing file: " << error_msg << std::endl;
         return 1; // Завершаем с ошибкой
     }
+
+    // Десериализация
+    List listDes;
+    result = listDes.deserializeFromFile("outlet.out", error_msg);
+    if (result != FileResult::Success) {
+        std::cerr << "Error deserializing file: " << error_msg << std::endl;
+        return 1;
+    }
+
+    // Вывод на экран десериализованных данных
+    ListNode* current = listDes.GetHead();
+        int i = 0;
+        while (current != nullptr) {
+            std::cout << "Node " << i << ": Data= " << current->data << "\", Rand=\"";
+            if (current->rand) {
+                // Простая проверка: найдем индекс rand узла
+                 ListNode* temp = listDes.GetHead();
+                 int idx = 0;
+                 while(temp && temp != current->rand) { temp = temp->next; ++idx; }
+                 std::cout << "Node " << idx << "(Data:" << current->rand->data << ")";
+            } else {
+                std::cout << "nullptr";
+            }
+            std::cout << std::endl;
+            current = current->next;
+            ++i;
+        }
+    std::cout << "Deserialized list count: " << listDes.GetCount() << std::endl;
 
     return 0; // Успешное завершение
 }
