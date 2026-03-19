@@ -20,11 +20,12 @@ struct ListNode {
 };
 
 enum class FileResult {
-    Success,            // Успешно
-    CannotOpenInput,    // Ошибка открытия файла
+    Success,
+    CannotOpenInput,
     CannotCreateOutput,
-    FaliedToRead,
-    FailedToWrite
+    FailedToRead,
+    FailedToWrite,
+    InvalidFormat // ошибки формата
 };
 
 class List {
@@ -45,7 +46,9 @@ public:
 private:
     ListNode* head;
     ListNode* tail;
-    int count(); // Объявление приватной функции
+    int count;
+
+    void clear(); // функция очистки
 };
 
 // реализация методов List
@@ -54,6 +57,84 @@ List::List() : head(nullptr), tail(nullptr), count(0) {}
 
 List::~List() {
     clear();
+}
+
+FileResult List::readFromFile(const std::string& filename, std::string& error_message) {
+    std::ifstream file(filename);
+    if (!file.is_open()) {
+        error_message = "Cannot open input file: " + filename;
+        return FileResult::CannotOpenInput;
+    }
+
+    clear(); // Очищаем текущий список перед загрузкой нового
+
+    std::string line;
+    std::vector<std::pair<std::string, int>> parsed_data;
+
+    while (std::getline(file, line)) {
+        if (line.empty()) continue;
+
+        size_t delimiter_pos = line.rfind(';');
+        if (delimiter_pos == std::string::npos) {
+            // Если ; нет, считаем всю строку как data, а rand_index как -1
+            // Это может быть допустимо, но для строго соответствия ТЗ можно считать ошибкой
+            // или всегда ожидать формат data;index. Пусть будет -1.
+            parsed_data.emplace_back(line, -1);
+            continue;
+        }
+
+        std::string data_str = line.substr(0, delimiter_pos);
+        std::string index_str = line.substr(delimiter_pos + 1);
+
+        int rand_index;
+        try {
+            rand_index = std::stoi(index_str);
+        } catch (...) {
+            // Если индекс не распознан, считаем его -1 (nullptr)
+            rand_index = -1;
+            file.close();
+        }
+
+        parsed_data.emplace_back(std::move(data_str), rand_index);
+    }
+    file.close();
+
+    int num_nodes = parsed_data.size();
+    if (num_nodes == 0) {
+        return FileResult::Success; // Пустой список - валидный результат
+    }
+
+    std::vector<ListNode*> nodes;
+    nodes.reserve(num_nodes);
+
+    for (int i = 0; i < num_nodes; ++i) {
+        ListNode* new_node = new ListNode();
+        new_node->data = std::move(parsed_data[i].first);
+        nodes.push_back(new_node);
+
+        if (i > 0) {
+            new_node->prev = nodes[i - 1];
+            nodes[i - 1]->next = new_node;
+        }
+    }
+
+    head = nodes[0];
+    tail = nodes[num_nodes - 1];
+    count = num_nodes;
+
+    for (int i = 0; i < num_nodes; ++i) {
+        int target_idx = parsed_data[i].second;
+        if (target_idx >= 0 && target_idx < num_nodes) {
+            nodes[i]->rand = nodes[target_idx];
+        } else if(target_idx != -1) { // Если индекс не -1 и не в диапазоне [0, count), это ошибка
+             error_message = "Rand index out of bounds in node " + std::to_string(i) + ", index: " + std::to_string(target_idx);
+             clear(); // Очищаем частично построенный список
+             return FileResult::InvalidFormat;
+        } else {
+            nodes[i]->rand = nullptr;
+        }
+    }
+    return FileResult::Success;
 }
 
    
