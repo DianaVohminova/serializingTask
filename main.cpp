@@ -76,9 +76,6 @@ FileResult List::readFromFile(const std::string& filename, std::string& error_me
 
         size_t delimiter_pos = line.rfind(';');
         if (delimiter_pos == std::string::npos) {
-            // Если ; нет, считаем всю строку как data, а rand_index как -1
-            // Это может быть допустимо, но для строго соответствия ТЗ можно считать ошибкой
-            // или всегда ожидать формат data;index. Пусть будет -1.
             parsed_data.emplace_back(line, -1);
             continue;
         }
@@ -104,6 +101,7 @@ FileResult List::readFromFile(const std::string& filename, std::string& error_me
         return FileResult::Success; // Пустой список - валидный результат
     }
 
+    // Создаем узлы и связываем их через указатели prev/next
     std::vector<ListNode*> nodes;
     nodes.reserve(num_nodes);
 
@@ -118,10 +116,12 @@ FileResult List::readFromFile(const std::string& filename, std::string& error_me
         }
     }
 
+    // устанавливаем голову и хвост списка
     head = nodes[0];
     tail = nodes[num_nodes - 1];
     count = num_nodes;
 
+    // Устанавливаем rand-ссылки
     for (int i = 0; i < num_nodes; ++i) {
         int target_idx = parsed_data[i].second;
         if (target_idx >= 0 && target_idx < num_nodes) {
@@ -132,6 +132,65 @@ FileResult List::readFromFile(const std::string& filename, std::string& error_me
              return FileResult::InvalidFormat;
         } else {
             nodes[i]->rand = nullptr;
+        }
+    }
+    return FileResult::Success;
+}
+/*--------------------------------------*/
+// функция сериализации
+FileResult List::serialize(std::ostream& stream, std::string& error_message) {
+    stream.write(reinterpret_cast<const char*>(&count), sizeof(count));
+    if (stream.fail()) {
+        error_message = "Failed to write count.";
+        return FileResult::FailedToWrite;
+    }
+
+    if (count == 0) { // пустой список
+        return FileResult::Success;
+    }
+
+    // нумеруем узлы и собираем их в вектор для быстрого доступа по индексу
+    std::vector<ListNode*> node_vec;
+    node_vec.reserve(count);
+    ListNode* current = head;
+    while (current != nullptr) {
+        node_vec.push_back(current);
+        current = current->next;
+    }
+
+    // записываем длины  и содержимое строк data
+    for (int i = 0; i < count; ++i) {
+        const std::string& data_str = node_vec[i]->data;
+        int data_len = static_cast<int>(data_str.length());
+        stream.write(reinterpret_cast<const char*>(&data_len), sizeof(data_len));
+        if (stream.fail()) {
+            error_message = "Failed to write string length.";
+            return FileResult::FailedToWrite;
+        }
+        stream.write(data_str.data(), data_len);
+        if (stream.fail()) {
+            error_message = "Failed to write string data.";
+            return FileResult::FailedToWrite;
+        }
+    }
+
+    // записываем индексы rand-ссылок
+    for (int i = 0; i < count; ++i) {
+        ListNode* rand_ptr = node_vec[i]->rand;
+        int rand_idx = -1;
+
+        if (rand_ptr != nullptr) {
+            for (int j = 0; j < count; ++j) {
+                if (node_vec[j] == rand_ptr) {
+                    rand_idx = j;
+                    break;
+                }
+            }
+        }
+        stream.write(reinterpret_cast<const char*>(&rand_idx), sizeof(rand_idx));
+        if (stream.fail()) {
+            error_message = "Failed to write rand index.";
+            return FileResult::FailedToWrite;
         }
     }
     return FileResult::Success;
